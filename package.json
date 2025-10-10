@@ -1,0 +1,28 @@
+{
+  "name": "gvelte",
+  "version": "1.0.0",
+  "description": "A compiler for Svelte-like syntax to GJS",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p ./compiler/tsconfig.json",
+    "compile": "node ./compiler/dist/index.js",
+    "dev": "node ./watch.js",
+    "start": "gjs ./dist/main.js",
+    "open": "gjs ./dist/open.js",
+    "close": "gjs ./dist/close.js"
+  },
+  "dependencies": {
+    "@babel/code-frame": "^7.27.1",
+    "astring": "^1.9.0",
+    "chalk": "^5.6.2",
+    "estree-walker": "^3.0.3",
+    "svelte": "^5.39.10"
+  },
+  "devDependencies": {
+    "@types/astring": "^1.3.0",
+    "@types/babel__code-frame": "^7.0.6",
+    "@types/node": "^24.7.0",
+    "chokidar": "^4.0.3",
+    "typescript": "^5.9.3"
+  }
+}

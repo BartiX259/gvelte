@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    // The directory for the final JavaScript output
+    "outDir": "./dist",
+    // The root directory of our source .ts files
+    "rootDir": ".",
+    "sourceMap": true,
+
+    "composite": true,
+    "incremental": true,
+
+    // Core Module and Type Settings
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    
+    // Strictness & Interop
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noUncheckedIndexedAccess": true
+  },
+  // We need to tell tsc which files to include
+  "include": [
+    "./**/*.ts", "./**/*.svelte"
+  ]
+}
