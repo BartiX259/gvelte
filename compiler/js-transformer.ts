@@ -1,130 +1,183 @@
 // compiler/js-transformer.ts
 import { walk } from "estree-walker";
 import { generate } from "astring";
-import { CompilerError, CompilerState, DependencyInfo } from "./types.js";
+import {
+  CompilerError,
+  CompilerState,
+  Dependency,
+  ImportSpecifier,
+} from "./types.js";
 
 interface WalkerContext {
   remove(): void;
   replace(node: any): void;
+  skip(): void;
 }
 
-export function analyze_script(script_ast: any): {
-  state_variables: Set<string>;
-  props: Map<string, string | null>;
-  svelte_dependencies: Map<string, DependencyInfo>;
-} {
-  const state_variables = new Set<string>();
-  const props = new Map<string, string | null>();
-  const svelte_dependencies = new Map<string, DependencyInfo>();
+/**
+ * Pass 1: Analyzes an AST to find variables that are both created with
+ * `$state` or `$derived` and are exported from the file.
+ */
+export function analyze_for_reactive_exports(ast: any): Set<string> {
+  const reactiveExports = new Set<string>();
+  const declaredReactiveVars = new Set<string>();
 
-  if (!script_ast || !script_ast.content) {
-    return { state_variables, props, svelte_dependencies };
-  }
-
-  walk(script_ast.content, {
-    enter: (node: any) => {
-      // Find Svelte component imports and capture the local name
-      if (
-        node.type === "ImportDeclaration" &&
-        node.source.value.endsWith(".svelte")
-      ) {
-        const local_name = node.specifiers.find(
-          (s: any) => s.type === "ImportDefaultSpecifier",
-        )?.local.name;
-        if (local_name) {
-          const dep_info: DependencyInfo = {
-            path: node.source.value,
-            location: { start: node.source.start, end: node.source.end },
-          };
-          svelte_dependencies.set(local_name, dep_info);
-        }
-      }
-
-      // Find state variables and props (this logic is unchanged)
+  walk(ast, {
+    enter(node: any) {
       if (
         node.type === "VariableDeclarator" &&
         node.init?.type === "CallExpression"
       ) {
         const calleeName = node.init.callee?.name;
-
-        if (calleeName === "$state" || calleeName === "$derived") {
-          if (node.id.type === "Identifier") {
-            state_variables.add(node.id.name);
-          }
+        if (
+          (calleeName === "$state" || calleeName === "$derived") &&
+          node.id.type === "Identifier"
+        ) {
+          declaredReactiveVars.add(node.id.name);
         }
+      }
+    },
+  });
 
-        if (calleeName === "$props") {
-          if (node.id.type !== "ObjectPattern") {
-            throw new CompilerError(
-              "`$props()` must be destructured.",
-              node.id,
-            );
+  walk(ast, {
+    enter(node: any) {
+      if (node.type === "ExportNamedDeclaration") {
+        if (
+          node.declaration &&
+          node.declaration.type === "VariableDeclaration"
+        ) {
+          for (const decl of node.declaration.declarations) {
+            if (
+              decl.id.type === "Identifier" &&
+              declaredReactiveVars.has(decl.id.name)
+            ) {
+              reactiveExports.add(decl.id.name);
+            }
           }
-          for (const prop of node.id.properties) {
-            if (prop.value.type === "AssignmentPattern") {
-              const prop_name = prop.key.name;
-              const default_value_ast = prop.value.right;
-              props.set(prop_name, generate(default_value_ast));
-            } else if (prop.value.type === "Identifier") {
-              props.set(prop.key.name, null);
+        } else if (node.specifiers) {
+          for (const spec of node.specifiers) {
+            if (declaredReactiveVars.has(spec.local.name)) {
+              reactiveExports.add(spec.exported.name);
             }
           }
         }
       }
     },
   });
-  return { state_variables, props, svelte_dependencies };
+
+  return reactiveExports;
 }
 
-export function transform_script_ast(
-  script_ast: any,
-  state: CompilerState,
-): string {
-  if (!script_ast || !script_ast.content) return "";
+/**
+ * Analyzes a script's AST to find all dependencies, local state variables, and props.
+ */
+export function analyze_script(script_ast: any): {
+  state_variables: Set<string>;
+  props: Map<string, string | null>;
+  dependencies: Map<string, Dependency>;
+} {
+  const state_variables = new Set<string>();
+  const props = new Map<string, string | null>();
+  const dependencies = new Map<string, Dependency>();
 
-  const ast_copy = JSON.parse(JSON.stringify(script_ast.content));
-  const scope_stack: Set<string>[] = [new Set()];
+  if (!script_ast || !script_ast.content) {
+    return { state_variables, props, dependencies };
+  }
+  walk(script_ast.content, {
+    enter: (node: any) => {
+      if (node.type === "ImportDeclaration") {
+        const source = node.source.value;
+        const location = { start: node.source.start, end: node.source.end };
+        if (!dependencies.has(source)) {
+          dependencies.set(source, {
+            path: source,
+            location,
+            isSvelte: source.endsWith(".svelte"),
+            specifiers: [],
+          });
+        }
+        const dep = dependencies.get(source)!;
+        for (const spec of node.specifiers) {
+          if (spec.type === "ImportDefaultSpecifier") {
+            dep.specifiers.push({
+              localName: spec.local.name,
+              importedName: "default",
+            });
+          } else if (spec.type === "ImportSpecifier") {
+            dep.specifiers.push({
+              localName: spec.local.name,
+              importedName: spec.imported.name,
+            });
+          }
+        }
+      }
+      if (
+        node.type === "VariableDeclarator" &&
+        node.init?.type === "CallExpression"
+      ) {
+        const calleeName = node.init.callee?.name;
+        if (calleeName === "$state" || calleeName === "$derived") {
+          if (node.id.type === "Identifier") state_variables.add(node.id.name);
+        }
+        if (calleeName === "$props") {
+          if (node.id.type !== "ObjectPattern")
+            throw new CompilerError(
+              "`$props()` must be destructured.",
+              node.id,
+            );
+          for (const prop of node.id.properties) {
+            if (prop.type === "Property") {
+              if (prop.value.type === "AssignmentPattern") {
+                props.set((prop.key as any).name, generate(prop.value.right));
+              } else if (prop.value.type === "Identifier") {
+                props.set((prop.key as any).name, null);
+              }
+            }
+          }
+        }
+      }
+    },
+  });
+  return { state_variables, props, dependencies };
+}
+
+/**
+ * The single, robust transformation function for all reactive code.
+ * Exported to be used by other compiler modules.
+ */
+export function transform_reactive_ast(
+  ast: any,
+  reactive_variables: Set<string>,
+  local_scope: Set<string> = new Set(),
+) {
+  const scope_stack: Set<string>[] = [local_scope];
+  let root_replacement = null;
 
   function is_in_scope(name: string): boolean {
     for (let i = scope_stack.length - 1; i >= 0; i--) {
-      const scope = scope_stack[i];
-      if (scope && scope.has(name)) {
-        return true;
-      }
+      if (scope_stack[i]?.has(name)) return true;
     }
     return false;
   }
 
-  function get_base_identifier(node: any): any | null {
-    while (node.type === "MemberExpression") {
-      node = node.object;
-    }
-    if (node.type === "Identifier") {
-      return node;
+  function get_base_identifier_name(node: any): string | null {
+    let base = node;
+    while (base.type === "MemberExpression") base = base.object;
+    if (base.type === "Identifier") return base.name;
+    if (
+      base.type === "CallExpression" &&
+      base.callee?.name === "$get" &&
+      base.arguments[0]?.type === "Identifier"
+    ) {
+      return base.arguments[0].name;
     }
     return null;
   }
 
+  const ast_copy = JSON.parse(JSON.stringify(ast));
+
   walk(ast_copy, {
-    enter: function (this: WalkerContext, node: any) {
-      if (
-        node.type === "ImportDeclaration" &&
-        node.source.value.endsWith(".svelte")
-      ) {
-        this.remove();
-        return;
-      }
-
-      if (node.type === "VariableDeclaration") {
-        const contains_props = node.declarations.some(
-          (d: any) => d.init?.callee?.name === "$props",
-        );
-        if (contains_props) {
-          this.remove();
-          return;
-        }
-      }
-
+    enter: (node: any) => {
       if (
         node.type === "FunctionDeclaration" ||
         node.type === "FunctionExpression" ||
@@ -133,32 +186,16 @@ export function transform_script_ast(
         const new_scope = new Set<string>();
         if (node.id) new_scope.add(node.id.name);
         node.params.forEach((param: any) => {
-          if (param.type === "Identifier") {
-            new_scope.add(param.name);
-          } else {
-            throw new CompilerError(
-              `Destructuring in function parameters is not supported in this context.`,
-              param,
-            );
-          }
+          if (param.type === "Identifier") new_scope.add(param.name);
         });
-        scope_stack.push(new_scope);
-      } else if (node.type === "CatchClause") {
-        const new_scope = new Set<string>();
-        if (node.param && node.param.type === "Identifier") {
-          new_scope.add(node.param.name);
-        }
         scope_stack.push(new_scope);
       }
     },
-    leave: (node: any, parent: any, key: any, index: any) => {
-      if (!node) return;
-
+    leave: function (this: WalkerContext, node: any, parent: any, key: any) {
       if (
         node.type === "FunctionDeclaration" ||
         node.type === "FunctionExpression" ||
-        node.type === "ArrowFunctionExpression" ||
-        node.type === "CatchClause"
+        node.type === "ArrowFunctionExpression"
       ) {
         scope_stack.pop();
       }
@@ -167,185 +204,154 @@ export function transform_script_ast(
 
       if (
         node.type === "Identifier" &&
-        state.reactive_variables.has(node.name) &&
+        reactive_variables.has(node.name) &&
         !is_in_scope(node.name)
       ) {
+        const isLHS =
+          parent && parent.type === "AssignmentExpression" && key === "left";
+        const isUpdateArg =
+          parent && parent.type === "UpdateExpression" && key === "argument";
         const isDecl =
-          (parent.type === "VariableDeclarator" && key === "id") ||
-          (parent.type === "FunctionDeclaration" && key === "id") ||
-          (parent.type === "ClassDeclaration" && key === "id");
-        const isAssign =
-          parent.type === "AssignmentExpression" && key === "left";
-        const isUpdate =
-          parent.type === "UpdateExpression" && key === "argument";
-        const isMemberProp =
-          parent.type === "MemberExpression" &&
-          key === "property" &&
-          !parent.computed;
-        const isShorthandProp =
-          parent.type === "Property" && key === "value" && parent.shorthand;
-        const isObjectKey = parent.type === "Property" && key === "key";
-
-        if (
-          !isDecl &&
-          !isAssign &&
-          !isUpdate &&
-          !isMemberProp &&
-          !isObjectKey
-        ) {
+          parent && parent.type === "VariableDeclarator" && key === "id";
+        if (!isLHS && !isUpdateArg && !isDecl) {
           replacement = {
             type: "CallExpression",
             callee: { type: "Identifier", name: "$get" },
             arguments: [node],
           };
-          if (isShorthandProp) {
-            parent.shorthand = false;
-            parent.value = replacement;
-            return;
-          }
         }
-      }
+      } else if (
+        node.type === "AssignmentExpression" ||
+        node.type === "UpdateExpression"
+      ) {
+        const is_update = node.type === "UpdateExpression";
+        const target = is_update ? node.argument : node.left;
+        const base_name = get_base_identifier_name(target);
 
-      if (node.type === "AssignmentExpression") {
         if (
-          node.left.type !== "Identifier" &&
-          node.left.type !== "MemberExpression"
+          base_name &&
+          reactive_variables.has(base_name) &&
+          !is_in_scope(base_name)
         ) {
-          throw new CompilerError(
-            "Assignment to a destructuring pattern involving state variables is not supported.",
-            node.left,
-          );
-        }
-        const target_node = get_base_identifier(node.left);
-        if (
-          target_node &&
-          state.reactive_variables.has(target_node.name) &&
-          !is_in_scope(target_node.name)
-        ) {
-          if (node.operator === "=") {
+          if (target.type === "MemberExpression") {
             replacement = {
-              type: "CallExpression",
-              callee: { type: "Identifier", name: "$set" },
-              arguments: [node.left, node.right],
-            };
-          } else {
-            const operator = node.operator.slice(0, -1);
-            replacement = {
-              type: "CallExpression",
-              callee: { type: "Identifier", name: "$set" },
-              arguments: [
-                node.left,
+              type: "SequenceExpression",
+              expressions: [
+                node,
                 {
-                  type: "BinaryExpression",
-                  operator: operator,
-                  left: {
-                    type: "CallExpression",
-                    callee: { type: "Identifier", name: "$get" },
-                    arguments: [node.left],
-                  },
-                  right: node.right,
+                  type: "CallExpression",
+                  callee: { type: "Identifier", name: "$notify" },
+                  arguments: [{ type: "Identifier", name: base_name }],
                 },
               ],
             };
-          }
-        }
-      }
-
-      if (
-        node.type === "UpdateExpression" &&
-        node.argument.type === "Identifier" &&
-        state.reactive_variables.has(node.argument.name) &&
-        !is_in_scope(node.argument.name)
-      ) {
-        if (parent.type !== "ExpressionStatement") {
-          throw new CompilerError(
-            `The ++/-- operators on state variables are only supported as standalone statements, not within other expressions.`,
-            node,
-          );
-        }
-        const operator = node.operator === "++" ? "+" : "-";
-        replacement = {
-          type: "CallExpression",
-          callee: { type: "Identifier", name: "$set" },
-          arguments: [
-            node.argument,
-            {
-              type: "BinaryExpression",
-              operator: operator,
-              left: {
+          } else if (target.type === "Identifier") {
+            if (is_update) {
+              const op = node.operator === "++" ? "+" : "-";
+              replacement = {
                 type: "CallExpression",
-                callee: { type: "Identifier", name: "$get" },
-                arguments: [node.argument],
-              },
-              right: { type: "Literal", value: 1, raw: "1" },
-            },
-          ],
-        };
-      }
-
-      if (node.type === "CallExpression" && node.callee.name === "$derived") {
-        const expr = node.arguments[0];
-        if (
-          expr &&
-          expr.type !== "ArrowFunctionExpression" &&
-          expr.type !== "FunctionExpression"
-        ) {
-          node.arguments[0] = {
-            type: "ArrowFunctionExpression",
-            params: [],
-            body: expr,
-          };
+                callee: { type: "Identifier", name: "$set" },
+                arguments: [
+                  target,
+                  {
+                    type: "BinaryExpression",
+                    operator: op,
+                    left: {
+                      type: "CallExpression",
+                      callee: { type: "Identifier", name: "$get" },
+                      arguments: [target],
+                    },
+                    right: { type: "Literal", value: 1, raw: "1" },
+                  },
+                ],
+              };
+            } else {
+              const op = node.operator.slice(0, -1);
+              replacement =
+                node.operator === "="
+                  ? {
+                      type: "CallExpression",
+                      callee: { type: "Identifier", name: "$set" },
+                      arguments: [node.left, node.right],
+                    }
+                  : {
+                      type: "CallExpression",
+                      callee: { type: "Identifier", name: "$set" },
+                      arguments: [
+                        node.left,
+                        {
+                          type: "BinaryExpression",
+                          operator: op,
+                          left: {
+                            type: "CallExpression",
+                            callee: { type: "Identifier", name: "$get" },
+                            arguments: [node.left],
+                          },
+                          right: node.right,
+                        },
+                      ],
+                    };
+            }
+          }
         }
       }
 
       if (replacement) {
-        if (index !== null) {
-          parent[key][index] = replacement;
+        if (!parent) {
+          root_replacement = replacement;
         } else {
-          parent[key] = replacement;
+          this.replace(replacement);
         }
       }
     },
   });
 
-  return generate(ast_copy);
+  return root_replacement || ast_copy;
 }
 
+/**
+ * Transforms a component's script AST.
+ */
+export function transform_script_ast(
+  script_ast: any,
+  state: CompilerState,
+): string {
+  if (!script_ast || !script_ast.content) return "";
+  const ast_copy = JSON.parse(JSON.stringify(script_ast.content));
+
+  walk(ast_copy, {
+    enter: function (this: WalkerContext, node: any) {
+      if (node.type === "ImportDeclaration") this.remove();
+      if (
+        node.type === "VariableDeclaration" &&
+        node.declarations.some((d: any) => d.init?.callee?.name === "$props")
+      )
+        this.remove();
+    },
+  });
+
+  const transformed_ast = transform_reactive_ast(
+    ast_copy,
+    state.reactive_variables,
+  );
+  return generate(transformed_ast);
+}
+
+/**
+ * Transforms a simple expression AST (e.g., from a template).
+ */
 export function transform_expression_ast(
   expression_ast: any,
   reactive_variables: Set<string>,
   local_scope: Set<string> = new Set(),
 ): string {
   if (!expression_ast) return "";
-  const ast_copy = JSON.parse(JSON.stringify(expression_ast));
-  let root_replacement = null;
-  walk(ast_copy, {
-    leave: (node: any, parent: any, key: any, index: any) => {
-      if (!node) return;
-      if (
-        node.type === "Identifier" &&
-        reactive_variables.has(node.name) &&
-        !local_scope.has(node.name)
-      ) {
-        const isCallee = parent?.type === "CallExpression" && key === "callee";
-        if (!isCallee) {
-          const replacement = {
-            type: "CallExpression",
-            callee: { type: "Identifier", name: "$get" },
-            arguments: [node],
-          };
-          if (parent) {
-            if (index !== null) {
-              parent[key][index] = replacement;
-            } else {
-              parent[key] = replacement;
-            }
-          } else {
-            root_replacement = replacement;
-          }
-        }
-      }
-    },
-  });
-  return generate(root_replacement || ast_copy);
+
+  const transformed_ast = transform_reactive_ast(
+    expression_ast,
+    reactive_variables,
+    local_scope,
+  );
+
+  return generate(transformed_ast);
 }

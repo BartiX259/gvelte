@@ -70,7 +70,6 @@ if (runBuild() && runCompile()) {
 
 // --- Watcher for Application Source (`src/`) ---
 const srcWatcher = chokidar.watch(path.resolve(SRC_DIR), {
-  ignored: /(^|[\/\\])\../,
   persistent: true,
 });
 

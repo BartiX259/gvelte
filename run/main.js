@@ -2,10 +2,12 @@
 imports.gi.versions.Gtk = "4.0";
 const { Gtk, Gio, GLib } = imports.gi;
 
-const SCRIPT_DIR = GLib.path_get_dirname(imports.system.programInvocationName);
-imports.searchPath.unshift(SCRIPT_DIR);
+const RUN_DIR = GLib.path_get_dirname(imports.system.programInvocationName);
+const DIST_DIR = GLib.build_filenamev([RUN_DIR, "../dist"]);
+imports.searchPath.unshift(RUN_DIR);
+imports.searchPath.unshift(DIST_DIR);
 
-const PROJECT_ROOT = GLib.path_get_dirname(SCRIPT_DIR);
+const PROJECT_ROOT = GLib.path_get_dirname(RUN_DIR);
 const TMP_DIR = GLib.build_filenamev([PROJECT_ROOT, ".tmp"]);
 const SESSION_STATE_FILE = GLib.build_filenamev([TMP_DIR, ".session.json"]);
 
@@ -94,21 +96,15 @@ class Launcher {
       this._openWindows.set(widgetName, window);
       this._saveSessionState();
 
-      // --- THE FIX IS HERE ---
-      // We now connect to the 'close-request' signal.
       window.connect("close-request", () => {
         console.log(
           `Manual close request for "${widgetName}". Updating state.`,
         );
-        // This is the same logic as our programmatic close.
         this._openWindows.delete(widgetName);
         this._saveSessionState();
 
-        // Return false to allow the window to continue closing.
-        // If we returned true, the window would not close.
         return false;
       });
-      // -----------------------
 
       const { rootWidget } = Widget({});
       window.set_child(rootWidget);
@@ -121,11 +117,8 @@ class Launcher {
   CloseWidget(widgetName) {
     if (this._openWindows.has(widgetName)) {
       const windowToClose = this._openWindows.get(widgetName);
-      // This is our "eager cleanup" for programmatic closes.
       this._openWindows.delete(widgetName);
 
-      // The programmatic close will eventually trigger the 'close-request'
-      // signal, but our state is already clean, so it doesn't matter.
       windowToClose.close();
 
       // We save state here for immediate feedback, though the signal handler would also catch it.
