@@ -320,6 +320,7 @@ function process_text_and_mustache_children(
 }
 
 // --- Node Processors ---
+
 function process_component_node(
   node: any,
   parent_var_name: string,
@@ -331,6 +332,7 @@ function process_component_node(
   const instance_name = generate_var_name(state, component_name.toLowerCase());
   let props_string = "";
 
+  // Process attributes
   for (const attr of node.attributes) {
     if (attr.type !== "Attribute") continue;
     const prop_name = attr.name;
@@ -343,6 +345,45 @@ function process_component_node(
     } else if (value_node.type === "MustacheTag") {
       const expression_code = generate(value_node.expression);
       props_string += `${prop_name}: ${expression_code}, `;
+    }
+  }
+
+  // Process children if they exist
+  if (node.children && node.children.length > 0) {
+    // Filter out empty text nodes
+    const meaningful_children = node.children.filter(
+      (c: any) => !(c.type === "Text" && !c.data.trim()),
+    );
+
+    if (meaningful_children.length > 0) {
+      // Create a container that will be returned by the snippet
+      const children_container_var = generate_var_name(state, "children_box");
+
+      // Generate the code that creates and populates the container
+      const children_code = walk_nodes(
+        meaningful_children,
+        children_container_var,
+        ContainerType.MULTIPLE,
+        state,
+        local_scope,
+      );
+
+      // Create a snippet function that returns the container widget
+      const snippet_name = generate_var_name(state, "children_snippet");
+      const snippet_function =
+        `function ${snippet_name}() {\n` +
+        `    const ${children_container_var} = new Gtk.Box({ orientation: Gtk.Orientation.HORIZONTAL });\n` +
+        indentBlock(children_code.declarations) +
+        `\n` +
+        indentBlock(children_code.handlers) +
+        `\n` +
+        `    return ${children_container_var};\n` +
+        `}\n\n`;
+
+      state.helper_functions += snippet_function;
+
+      // Pass the children snippet as a prop
+      props_string += `children: ${snippet_name}, `;
     }
   }
 
@@ -706,6 +747,52 @@ function process_each_block(
   return { declarations, handlers };
 }
 
+function process_render_tag(
+  node: any,
+  parent_var_name: string,
+  parent_container_type: ContainerType,
+  state: CompilerState,
+  local_scope: Set<string>,
+): { declarations: string; handlers: string } {
+  // 1. Create a dedicated container for the rendered content.
+  // This allows us to easily clear and replace it when it needs to update.
+  const container_var = generate_var_name(state, "render_container");
+  let declarations = `const ${container_var} = new Gtk.Box();\n`;
+
+  if (parent_container_type === ContainerType.SINGLE) {
+    declarations += `${parent_var_name}.set_child(${container_var});\n`;
+  } else {
+    declarations += `${parent_var_name}.append(${container_var});\n`;
+  }
+
+  // 2. Transform the expression inside the render tag (e.g., `test_entry()`).
+  // This ensures that any reactive variables passed as arguments are handled correctly.
+  const expression_code = transform_expression_ast(
+    node.expression,
+    state.reactive_variables,
+    local_scope,
+  );
+
+  // 3. Create a reactive effect to handle rendering and updates.
+  let handlers = `$effect(() => {\n`;
+  // When the effect re-runs, first clear the old content.
+  handlers += indentBlock(clear_container_code(container_var));
+  // Call the render function and get the widget.
+  handlers += `\n    const rendered_item = ${expression_code};\n`;
+  // Check if the result is a raw widget or a component instance { rootWidget }
+  // and append the correct thing. This makes it robust.
+  handlers += `    if (rendered_item) {\n`;
+  handlers += `        if (rendered_item.rootWidget) {\n`;
+  handlers += `            ${container_var}.append(rendered_item.rootWidget);\n`;
+  handlers += `        } else {\n`;
+  handlers += `            ${container_var}.append(rendered_item);\n`;
+  handlers += `        }\n`;
+  handlers += `    }\n`;
+  handlers += `});\n`;
+
+  return { declarations, handlers };
+}
+
 // --- Main Traversal Function ---
 function walk_nodes(
   nodes: any[],
@@ -758,12 +845,22 @@ function walk_nodes(
           local_scope,
         );
         break;
+      case "RenderTag":
+        result = process_render_tag(
+          node,
+          parent_var_name,
+          parent_container_type,
+          state,
+          local_scope,
+        );
+        break;
       case "Text":
       case "MustacheTag":
       case "Fragment":
       case "Comment":
         break;
       default:
+        console.log(node);
         throw new CompilerError(
           `Unsupported Svelte syntax node: ${node.type}`,
           node,

@@ -213,12 +213,32 @@ export function transform_reactive_ast(
           parent && parent.type === "UpdateExpression" && key === "argument";
         const isDecl =
           parent && parent.type === "VariableDeclarator" && key === "id";
-        if (!isLHS && !isUpdateArg && !isDecl) {
+        // Check if this is an object property shorthand value
+        const isShorthandValue =
+          parent &&
+          parent.type === "Property" &&
+          parent.shorthand === true &&
+          key === "value";
+
+        if (!isLHS && !isUpdateArg && !isDecl && !isShorthandValue) {
           replacement = {
             type: "CallExpression",
             callee: { type: "Identifier", name: "$get" },
             arguments: [node],
           };
+        } else if (isShorthandValue) {
+          // Convert shorthand to longhand with $get
+          // We need to create a new identifier for the key (unchanged)
+          // and wrap the value with $get
+          parent.shorthand = false;
+          parent.key = { type: "Identifier", name: node.name };
+          parent.value = {
+            type: "CallExpression",
+            callee: { type: "Identifier", name: "$get" },
+            arguments: [{ type: "Identifier", name: node.name }],
+          };
+          // Skip replacement since we've already modified the parent
+          return;
         }
       } else if (
         node.type === "AssignmentExpression" ||

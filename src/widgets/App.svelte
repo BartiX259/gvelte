@@ -8,7 +8,9 @@
     <label>This is the root component (App.svelte)</label>
     <image icon_name="start-here-fedora"></image>
     <entry bind={greeting} />
-    <Child message={greeting} />
+    <Child message={greeting}>
+        <label>child child</label>
+    </Child>
     <label>PARENT:</label>
     <label>Count is {countState.count}</label>
     <button onclick={() => countState.count++}>Increase</button>
