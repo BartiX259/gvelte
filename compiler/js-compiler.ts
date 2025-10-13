@@ -2,7 +2,7 @@
 import * as acorn from "acorn";
 import { walk } from "estree-walker";
 import { generate } from "astring";
-import { transform_reactive_ast } from "./js-transformer.js";
+import { transform_reactive_ast } from "./js/transform.js";
 
 interface WalkerContext {
   remove(): void;

@@ -1,6 +1,8 @@
 // compiler/utils.ts
 import { codeFrameColumns } from "@babel/code-frame";
 import chalk from "chalk";
+import fs from "fs";
+import path from "path";
 import { CompilerState, Location } from "./types.js";
 
 /**
@@ -27,9 +29,6 @@ export function generate_var_name(state: CompilerState, tag: string): string {
 
 /**
  * Converts a character offset in a source string to a line and column number.
- * @param source The full source code string.
- * @param offset The character offset (e.g., node.start).
- * @returns An object with line and column numbers (1-based).
  */
 export function get_location_from_offset(
   source: string,
@@ -45,14 +44,12 @@ export function get_location_from_offset(
     }
   }
 
-  // Column is the offset from the last newline, plus 1 (for 1-based indexing)
   const column = offset - last_newline_offset;
   return { line, column };
 }
 
 /**
  * Formats a compiler error into a user-friendly string with a code frame.
- * Now accepts a Location object instead of the full AST node.
  */
 export function format_compiler_error(
   tag: string,
@@ -79,4 +76,29 @@ export function format_generic_error(tag: string, message: string): string {
 }
 export function format_compiler_success(out: string): string {
   return `${chalk.green.bold("[Success]")} Compilation successful. Output written to ${chalk.bold(out)}.`;
+}
+
+/**
+ * Recursively finds all files with a given extension in a directory.
+ */
+export function find_files_by_ext(start_path: string, ext: string): string[] {
+  let results: string[] = [];
+  if (!fs.existsSync(start_path)) return [];
+  const files = fs.readdirSync(start_path);
+  for (const file of files) {
+    const filepath = path.join(start_path, file);
+    const stat = fs.lstatSync(filepath);
+    if (stat.isDirectory())
+      results = results.concat(find_files_by_ext(filepath, ext));
+    else if (filepath.endsWith(ext)) results.push(filepath);
+  }
+  return results;
+}
+
+/**
+ * Converts a source file path into a GJS-compatible module name.
+ */
+export function mangle_filepath(filepath: string, src_dir: string): string {
+  const relative_path = path.relative(src_dir, filepath);
+  return relative_path.replace(/\.[^/.]+$/, "").replace(/[\/\-\.]/g, "_");
 }
