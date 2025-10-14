@@ -1,6 +1,12 @@
 // compiler/html/widget-map.ts
 import { ContainerType } from "../types.js";
 
+export const ATTRIBUTE_MAP: {
+  [key: string]: string;
+} = {
+  class: "css_classes",
+};
+
 // Common layout properties applicable to most GTK widgets.
 export const COMMON_LAYOUT_PROPS = [
   "vexpand",

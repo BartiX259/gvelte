@@ -1,7 +1,10 @@
-// compiler/html/attribute-processors.ts
-import { CompilerError } from "../types.js";
+import { walk } from "estree-walker";
+import { transform_expression_ast } from "../js/transform.js";
+import { CompilerError, CompilerState } from "../types.js";
 
-export function process_bind_attribute(
+// --- Directive Handlers ---
+
+function process_bind_attribute(
   tag: string,
   var_name: string,
   value_node: any,
@@ -32,21 +35,18 @@ export function process_bind_attribute(
   return handlers;
 }
 
-export function process_orientation_attribute(value_node: any): string {
-  if (value_node.data === "vertical" || value_node.data === "v")
-    return "Gtk.Orientation.VERTICAL";
-  if (value_node.data === "horizontal" || value_node.data === "h")
-    return "Gtk.Orientation.HORIZONTAL";
+// --- Static Prop Transformation Logic ---
 
-  throw new CompilerError(
-    `Invalid orientation value: '${value_node.data}'`,
-    value_node,
-  );
+function transform_orientation_prop(value_node: any): string {
+  const value = value_node.data;
+  if (value === "vertical" || value === "v") return "Gtk.Orientation.VERTICAL";
+  if (value === "horizontal" || value === "h")
+    return "Gtk.Orientation.HORIZONTAL";
+  throw new CompilerError(`Invalid orientation value: '${value}'`, value_node);
 }
 
-export function process_align_attribute(value_node: any): string {
-  const align_val = value_node.data.toLowerCase();
-  switch (align_val) {
+function transform_align_prop(value_node: any): string {
+  switch (value_node.data.toLowerCase()) {
     case "fill":
       return "Gtk.Align.FILL";
     case "start":
@@ -62,3 +62,156 @@ export function process_align_attribute(value_node: any): string {
       );
   }
 }
+
+function transform_css_classes_prop(value_node: any): string {
+  if (!value_node || !value_node.data) return "[]";
+  const classes = value_node.data.trim().split(/\s+/).filter(Boolean);
+  return JSON.stringify(classes);
+}
+
+// --- Handler and Transformer Maps ---
+
+const directive_handlers: {
+  [key: string]: (tag: string, var_name: string, value_node: any) => string;
+} = {
+  bind: process_bind_attribute,
+};
+
+const prop_transformers = {
+  orientation: {
+    transform: transform_orientation_prop,
+    runtime_fn: "runtime_resolve_orientation",
+  },
+  halign: {
+    transform: transform_align_prop,
+    runtime_fn: "runtime_resolve_align",
+  },
+  valign: {
+    transform: transform_align_prop,
+    runtime_fn: "runtime_resolve_align",
+  },
+  css_classes: {
+    transform: transform_css_classes_prop,
+    runtime_fn: "runtime_resolve_css_classes",
+  },
+};
+
+// --- Main Dispatcher ---
+
+export function process_attribute(
+  attr: any,
+  var_name: string,
+  tag: string,
+  state: CompilerState,
+  local_scope: Set<string>,
+): { prop_string: string; handler_string: string } {
+  const prop_name = attr.name;
+  const value_node = attr.value[0];
+
+  // 1. Check for a directive
+  if (prop_name in directive_handlers) {
+    const handler_string = directive_handlers[prop_name]!(
+      tag,
+      var_name,
+      value_node,
+    );
+    return { prop_string: "", handler_string };
+  }
+
+  // Helper function for reactive analysis
+  const check_is_reactive = (expression: any) => {
+    let is_reactive = false;
+    walk(expression, {
+      enter(expr_node: any) {
+        if (
+          expr_node.type === "Identifier" &&
+          state.reactive_variables.has(expr_node.name) &&
+          !local_scope.has(expr_node.name)
+        ) {
+          is_reactive = true;
+        }
+      },
+    });
+    return is_reactive;
+  };
+
+  // 2. Check for a prop transformer
+  if (prop_name in prop_transformers) {
+    const transformer =
+      prop_transformers[prop_name as keyof typeof prop_transformers];
+    if (!value_node || value_node.type === "Text") {
+      const transformed_value = transformer.transform(value_node);
+      return {
+        prop_string: `${prop_name}: ${transformed_value}, `,
+        handler_string: "",
+      };
+    } else if (value_node.type === "MustacheTag") {
+      const expression_code = transform_expression_ast(
+        value_node.expression,
+        state.reactive_variables,
+        local_scope,
+      );
+      const handler_string = `$effect(() => { ${var_name}.${prop_name} = ${transformer.runtime_fn}(${expression_code}); });\n`;
+      return { prop_string: "", handler_string };
+    }
+  }
+
+  // 3. Handle as a default prop
+  if (!value_node) return { prop_string: "", handler_string: "" };
+
+  if (value_node.type === "Text") {
+    let value = value_node.data;
+    if (value === "true" || value === "false") {
+      value = value; // Use as boolean literal
+    } else {
+      value = JSON.stringify(value); // Wrap in quotes
+    }
+    return { prop_string: `${prop_name}: ${value}, `, handler_string: "" };
+  } else if (value_node.type === "MustacheTag") {
+    const is_reactive = check_is_reactive(value_node.expression);
+    const transformed_expression = transform_expression_ast(
+      value_node.expression,
+      state.reactive_variables,
+      local_scope,
+    );
+
+    if (is_reactive) {
+      const handler_string = `$effect(() => { ${var_name}.${prop_name} = ${transformed_expression}; });\n`;
+      return { prop_string: "", handler_string };
+    } else {
+      return {
+        prop_string: `${prop_name}: ${transformed_expression}, `,
+        handler_string: "",
+      };
+    }
+  }
+
+  return { prop_string: "", handler_string: "" };
+}
+
+// NOTE: The compiler should inject these helper functions into the final output.
+export const RUNTIME_HELPERS = {
+  runtime_resolve_orientation: `function runtime_resolve_orientation(value) {
+    if (value === "vertical" || value === "v") return Gtk.Orientation.VERTICAL;
+    if (value === "horizontal" || value === "h") return Gtk.Orientation.HORIZONTAL;
+    return Gtk.Orientation.HORIZONTAL; // Default
+  }`,
+  runtime_resolve_align: `function runtime_resolve_align(value) {
+    switch (String(value).toLowerCase()) {
+      case "fill": return Gtk.Align.FILL;
+      case "start": return Gtk.Align.START;
+      case "end": return Gtk.Align.END;
+      case "center": return Gtk.Align.CENTER;
+      default: return Gtk.Align.FILL; // Default
+    }
+  }`,
+  runtime_resolve_css_classes: `function runtime_resolve_css_classes(value) {
+    if (Array.isArray(value)) {
+      return value.filter(Boolean);
+    }
+    if (typeof value === 'string') {
+      return value.trim().split(/\\s+/).filter(Boolean);
+    }
+    return [];
+  }`,
+};

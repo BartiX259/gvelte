@@ -12,13 +12,9 @@ import {
   Location,
 } from "../types.js";
 import { generate_var_name, indentBlock } from "../utils.js";
-import {
-  process_align_attribute,
-  process_bind_attribute,
-  process_orientation_attribute,
-} from "./attributes.js";
+import { process_attribute } from "./attributes.js";
 import { walk_nodes } from "./index.js";
-import { WIDGET_MAP } from "./widget-map.js";
+import { ATTRIBUTE_MAP, WIDGET_MAP } from "./widget-map.js";
 
 // --- Internal Helpers ---
 
@@ -156,62 +152,15 @@ export function process_element(
 
   for (const attr of node.attributes) {
     if (attr.type !== "Attribute" || attr.name.startsWith("on")) continue;
-    const prop_name = attr.name;
-    const value_node = attr.value[0];
+
+    const prop_name =
+      attr.name in ATTRIBUTE_MAP ? ATTRIBUTE_MAP[attr.name] : attr.name;
+    attr.name = prop_name; // Mutate attr for process_attribute to use the mapped name
 
     if (widget_info.valid_props.includes(prop_name)) {
-      switch (prop_name) {
-        case "bind":
-          handlers += process_bind_attribute(tag, var_name, value_node);
-          break;
-        case "orientation":
-          const orientation_value = process_orientation_attribute(value_node);
-          props_string += `${prop_name}: ${orientation_value}, `;
-          break;
-        case "halign":
-        case "valign":
-          const align_value = process_align_attribute(value_node);
-          props_string += `${prop_name}: ${align_value}, `;
-          break;
-        default:
-          if (!value_node) continue;
-
-          if (value_node.type === "Text") {
-            if (value_node.data === "true" || value_node.data === "false") {
-              props_string += `${prop_name}: ${value_node.data}, `;
-            } else {
-              props_string += `${prop_name}: ${JSON.stringify(
-                value_node.data,
-              )}, `;
-            }
-          } else if (value_node.type === "MustacheTag") {
-            let is_reactive = false;
-            walk(value_node.expression, {
-              enter(expr_node: any) {
-                if (
-                  expr_node.type === "Identifier" &&
-                  state.reactive_variables.has(expr_node.name) &&
-                  !local_scope.has(expr_node.name)
-                ) {
-                  is_reactive = true;
-                }
-              },
-            });
-
-            const transformed_expression = transform_expression_ast(
-              value_node.expression,
-              state.reactive_variables,
-              local_scope,
-            );
-
-            if (is_reactive) {
-              handlers += `$effect(() => { ${var_name}.${prop_name} = ${transformed_expression}; });\n`;
-            } else {
-              props_string += `${prop_name}: ${transformed_expression}, `;
-            }
-          }
-          break;
-      }
+      const result = process_attribute(attr, var_name, tag, state, local_scope);
+      props_string += result.prop_string;
+      handlers += result.handler_string;
     } else {
       const available_attrs = widget_info.valid_props.join(", ");
       throw new CompilerError(
