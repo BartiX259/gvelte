@@ -80,19 +80,19 @@ const directive_handlers: {
 const prop_transformers = {
   orientation: {
     transform: transform_orientation_prop,
-    runtime_fn: "runtime_resolve_orientation",
+    runtime_fn: "$resolve_orientation",
   },
   halign: {
     transform: transform_align_prop,
-    runtime_fn: "runtime_resolve_align",
+    runtime_fn: "$resolve_align",
   },
   valign: {
     transform: transform_align_prop,
-    runtime_fn: "runtime_resolve_align",
+    runtime_fn: "$resolve_align",
   },
   css_classes: {
     transform: transform_css_classes_prop,
-    runtime_fn: "runtime_resolve_css_classes",
+    runtime_fn: "$resolve_css_classes",
   },
 };
 
@@ -145,7 +145,10 @@ export function process_attribute(
         prop_string: `${prop_name}: ${transformed_value}, `,
         handler_string: "",
       };
-    } else if (value_node.type === "MustacheTag") {
+    } else if (
+      value_node.type === "MustacheTag" ||
+      value_node.type === "AttributeShorthand"
+    ) {
       const expression_code = transform_expression_ast(
         value_node.expression,
         state.reactive_variables,
@@ -153,6 +156,8 @@ export function process_attribute(
       );
       const handler_string = `$effect(() => { ${var_name}.${prop_name} = ${transformer.runtime_fn}(${expression_code}); });\n`;
       return { prop_string: "", handler_string };
+    } else {
+      throw value_node;
     }
   }
 
@@ -167,7 +172,10 @@ export function process_attribute(
       value = JSON.stringify(value); // Wrap in quotes
     }
     return { prop_string: `${prop_name}: ${value}, `, handler_string: "" };
-  } else if (value_node.type === "MustacheTag") {
+  } else if (
+    value_node.type === "MustacheTag" ||
+    value_node.type === "AttributeShorthand"
+  ) {
     const is_reactive = check_is_reactive(value_node.expression);
     const transformed_expression = transform_expression_ast(
       value_node.expression,
@@ -188,30 +196,3 @@ export function process_attribute(
 
   return { prop_string: "", handler_string: "" };
 }
-
-// NOTE: The compiler should inject these helper functions into the final output.
-export const RUNTIME_HELPERS = {
-  runtime_resolve_orientation: `function runtime_resolve_orientation(value) {
-    if (value === "vertical" || value === "v") return Gtk.Orientation.VERTICAL;
-    if (value === "horizontal" || value === "h") return Gtk.Orientation.HORIZONTAL;
-    return Gtk.Orientation.HORIZONTAL; // Default
-  }`,
-  runtime_resolve_align: `function runtime_resolve_align(value) {
-    switch (String(value).toLowerCase()) {
-      case "fill": return Gtk.Align.FILL;
-      case "start": return Gtk.Align.START;
-      case "end": return Gtk.Align.END;
-      case "center": return Gtk.Align.CENTER;
-      default: return Gtk.Align.FILL; // Default
-    }
-  }`,
-  runtime_resolve_css_classes: `function runtime_resolve_css_classes(value) {
-    if (Array.isArray(value)) {
-      return value.filter(Boolean);
-    }
-    if (typeof value === 'string') {
-      return value.trim().split(/\\s+/).filter(Boolean);
-    }
-    return [];
-  }`,
-};

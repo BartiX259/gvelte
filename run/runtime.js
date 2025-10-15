@@ -1,6 +1,8 @@
 // runtime.js
 "use strict";
 
+let Gtk = imports.gi.Gtk;
+
 let activeEffect = null;
 
 function $state(initialValue) {
@@ -101,6 +103,35 @@ function $prop(props, key, default_value, is_bindable) {
 
   return local_state;
 }
+function $resolve_orientation(value) {
+  if (value === "vertical" || value === "v") return Gtk.Orientation.VERTICAL;
+  if (value === "horizontal" || value === "h")
+    return Gtk.Orientation.HORIZONTAL;
+  return Gtk.Orientation.HORIZONTAL; // Default
+}
+function $resolve_align(value) {
+  switch (String(value).toLowerCase()) {
+    case "fill":
+      return Gtk.Align.FILL;
+    case "start":
+      return Gtk.Align.START;
+    case "end":
+      return Gtk.Align.END;
+    case "center":
+      return Gtk.Align.CENTER;
+    default:
+      return Gtk.Align.FILL; // Default
+  }
+}
+function $resolve_css_classes(value) {
+  if (Array.isArray(value)) {
+    return value.filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value.trim().split(/\\s+/).filter(Boolean);
+  }
+  return [];
+}
 
 this.$state = $state;
 this.$get = $get;
@@ -109,3 +140,6 @@ this.$effect = $effect;
 this.$derived = $derived;
 this.$notify = $notify;
 this.$prop = $prop;
+this.$resolve_align = $resolve_align;
+this.$resolve_css_classes = $resolve_css_classes;
+this.$resolve_orientation = $resolve_orientation;

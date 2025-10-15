@@ -89,7 +89,9 @@ return { rootWidget: ${state.root_widget_name} };
   return `'use strict';
 ${gi_imports.join("\n")}
 ${system_imports.join("\n")}
-const { $state, $get, $set, $effect, $derived, $notify, $prop } = imports.runtime;
+const { $state, $get, $set, $effect, $derived, $notify, $prop,
+        $resolve_align, $resolve_css_classes, $resolve_orientation
+      } = imports.runtime;
 ${app_imports_code}
 
 ${component_function}

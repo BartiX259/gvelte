@@ -34,7 +34,7 @@ function process_text_and_mustache_children(
     .map((child: any) => {
       if (!child) return "";
       if (child.type === "Text") return child.data.replace(/`/g, "\\`"); // Escape backticks
-      if (child.type === "MustacheTag") {
+      if (child.type === "MustacheTag" || child.type === "AttributeShorthand") {
         walk(child.expression, {
           enter(expr_node: any) {
             if (
@@ -82,7 +82,10 @@ export function process_component_node(
       props_string += `${prop_name}: $state(${JSON.stringify(
         value_node.data,
       )}), `;
-    } else if (value_node.type === "MustacheTag") {
+    } else if (
+      value_node.type === "MustacheTag" ||
+      value_node.type === "AttributeShorthand"
+    ) {
       const expression_code = generate(value_node.expression);
       props_string += `${prop_name}: ${expression_code}, `;
     }
@@ -185,7 +188,9 @@ export function process_element(
         );
         const textChildren = node.children.filter(
           (c: any) =>
-            (c.type === "Text" && c.data.trim()) || c.type === "MustacheTag",
+            (c.type === "Text" && c.data.trim()) ||
+            c.type === "MustacheTag" ||
+            c.type === "AttributeShorthand",
         );
 
         if (elementChildren.length > 0 && textChildren.length > 0) {
