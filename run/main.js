@@ -1,6 +1,6 @@
 "use strict";
 imports.gi.versions.Gtk = "4.0";
-const { Gtk, Gio, GLib } = imports.gi;
+const { Gtk, Gdk, Gio, GLib } = imports.gi;
 
 const RUN_DIR = GLib.path_get_dirname(imports.system.programInvocationName);
 const DIST_DIR = GLib.build_filenamev([RUN_DIR, "../dist"]);
@@ -145,6 +145,23 @@ const app = new Gtk.Application({
 let launcher;
 
 app.connect("startup", () => {
+  try {
+    const provider = new Gtk.CssProvider();
+    const css_path = GLib.build_filenamev([DIST_DIR, "index.css"]);
+    if (GLib.file_test(css_path, GLib.FileTest.EXISTS)) {
+      provider.load_from_path(css_path);
+      Gtk.StyleContext.add_provider_for_display(
+        Gdk.Display.get_default(),
+        provider,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+      );
+      console.log("Global stylesheet loaded successfully.");
+    } else {
+      console.warn(`No global stylesheet (${css_path}) found.`);
+    }
+  } catch (e) {
+    console.error(`Failed to load global stylesheet: ${e.message}`);
+  }
   app.hold();
   launcher = new Launcher();
   launcher.export(Gio.DBus.session);

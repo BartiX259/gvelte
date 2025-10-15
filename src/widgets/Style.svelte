@@ -3,7 +3,9 @@
 </script>
 
 <box {orientation}>
-    <button onclick={(orientation = orientation === "h" ? "v" : "h")}
+    <button
+        class="p-2"
+        onclick={(orientation = orientation === "h" ? "v" : "h")}
         >Switch orientation</button
     >
     <entry class="test"></entry>

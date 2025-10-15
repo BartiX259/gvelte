@@ -18,6 +18,7 @@ import { compile_js_string } from "./js-compiler.js";
 import ts from "typescript";
 import * as acorn from "acorn";
 import { assemble_component } from "./assemble.js";
+import { buildTailwindCss } from "./tailwind.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -227,6 +228,9 @@ function build_project(src_dir: string, dist_dir: string) {
       process.exit(1);
     }
   }
+
+  console.log("Pass 3: compile tailwind css");
+  buildTailwindCss();
 
   console.log("\nBuild finished successfully!");
 }
