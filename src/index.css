@@ -1,5 +1,37 @@
 @import "tailwindcss";
 
-button {
-    padding: 40px;
+/* Gtk theme colors so you can use classes like bg-bg, text-warning etc. */
+@theme {
+    /* Base colors */
+    --color-bg: @theme_bg_color;
+    --color-fg: @theme_fg_color;
+
+    /* Window / text areas */
+    --color-base: @theme_base_color;
+    --color-text: @theme_text_color;
+
+    /* Selection */
+    --color-selected-bg: @theme_selected_bg_color;
+    --color-selected-fg: @theme_selected_fg_color;
+
+    /* Disabled / insensitive */
+    --color-disabled-bg: @insensitive_bg_color;
+    --color-disabled-fg: @insensitive_fg_color;
+
+    /* Semantic colors */
+    --color-warning: @warning_color;
+    --color-error: @error_color;
+    --color-success: @success_color;
+
+    /* Links */
+    --color-link: @link_color;
+    --color-link-visited: @visited_link_color;
+
+    /* Buttons and special areas (some themes support these) */
+    --color-button-bg: @theme_button_bg_color;
+    --color-button-fg: @theme_button_fg_color;
+
+    /* Unfocused state (if supported) */
+    --color-unfocused-bg: @theme_unfocused_bg_color;
+    --color-unfocused-fg: @theme_unfocused_fg_color;
 }

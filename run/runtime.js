@@ -128,7 +128,7 @@ function $resolve_css_classes(value) {
     return value.filter(Boolean);
   }
   if (typeof value === "string") {
-    return value.trim().split(/\\s+/).filter(Boolean);
+    return value.trim().split(/\s+/).filter(Boolean);
   }
   return [];
 }

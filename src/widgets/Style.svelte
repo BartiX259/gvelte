@@ -4,9 +4,10 @@
 
 <box {orientation}>
     <button
-        class="p-2"
+        class={`p-2 bg-selected-bg ${orientation === "h" ? "mr-2" : "mb-2"}`}
         onclick={(orientation = orientation === "h" ? "v" : "h")}
-        >Switch orientation</button
     >
-    <entry class="test"></entry>
+        <label class="text-warning">Switch orientation</label></button
+    >
+    <entry hexpand={true}></entry>
 </box>

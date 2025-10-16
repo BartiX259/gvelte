@@ -55,6 +55,14 @@ Create reusable components and place them in the `src/components/` directory. To
 <label>{message}</label>
 ```
 
+### Styling
+
+To style your components, use tailwindcss classes. It's recommended to use the colors from the gtk theme, which can be found in `src/index.css`.
+
+```svelte
+<label class="text-warning bg-selected-bg p-2 mb-4">Warning</label>
+```
+
 ## Installation
 
 1. Install system dependencies
