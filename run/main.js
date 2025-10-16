@@ -1,6 +1,7 @@
 "use strict";
 imports.gi.versions.Gtk = "4.0";
-const { Gtk, Gdk, Gio, GLib } = imports.gi;
+imports.gi.versions.Gtk4LayerShell = "1.0";
+const { Gtk, Gdk, Gio, GLib, Gtk4LayerShell } = imports.gi;
 
 const RUN_DIR = GLib.path_get_dirname(imports.system.programInvocationName);
 const DIST_DIR = GLib.build_filenamev([RUN_DIR, "../dist"]);
@@ -86,12 +87,27 @@ class Launcher {
     }
     try {
       const mangledName = `widgets_${widgetName}`;
+      console.log(1);
+      console.log(mangledName);
       const { [mangledName]: Widget } = imports[mangledName];
-      const window = new Gtk.Window({
-        title: widgetName,
-        default_width: 350,
-        default_height: 220,
-      });
+      console.log(2);
+      const { rootWidget } = Widget({});
+      let window;
+      // Fallback: If it's a regular widget, create a default window for it.
+      if (rootWidget instanceof Gtk.Window) {
+        window = rootWidget;
+        if (!window.get_title()) {
+          window.set_title(widgetName);
+        }
+      } else {
+        // Fallback: If it's a regular widget, create a default window for it.
+        window = new Gtk.Window({
+          title: widgetName,
+          default_width: 350,
+          default_height: 220,
+        });
+        window.set_child(rootWidget);
+      }
 
       this._openWindows.set(widgetName, window);
       this._saveSessionState();
@@ -106,10 +122,9 @@ class Launcher {
         return false;
       });
 
-      const { rootWidget } = Widget({});
-      window.set_child(rootWidget);
       window.present();
     } catch (e) {
+      console.error(e);
       console.error(`Error launching widget "${widgetName}": ${e.message}`);
     }
   }

@@ -35,20 +35,23 @@
     }
 </script>
 
-<MainEntry bind={search} placeholder_text="Search for an icon..."></MainEntry>
+<box class="p-2" orientation="v">
+    <MainEntry bind={search} placeholder_text="Search for an icon..."
+    ></MainEntry>
 
-<scrolledwindow vexpand={true}>
-    <box orientation="v" spacing={4}>
-        {#each filtered_icons as icon}
-            <button margin_end={16} onclick={() => copyIconName(icon)}>
-                <box>
-                    <image pixel_size={48} icon_name={icon}></image>
-                    <label halign="start" hexpand={true}>{icon}</label>
-                    <image icon_name="edit-copy-symbolic"></image>
-                </box>
-            </button>
-        {:else}
-            <label>No results</label>
-        {/each}
-    </box>
-</scrolledwindow>
+    <scrolledwindow vexpand={true}>
+        <box orientation="v" spacing={4}>
+            {#each filtered_icons as icon}
+                <button margin_end={16} onclick={() => copyIconName(icon)}>
+                    <box>
+                        <image pixel_size={48} icon_name={icon}></image>
+                        <label halign="start" hexpand={true}>{icon}</label>
+                        <image icon_name="edit-copy-symbolic"></image>
+                    </box>
+                </button>
+            {:else}
+                <label>No results</label>
+            {/each}
+        </box>
+    </scrolledwindow>
+</box>

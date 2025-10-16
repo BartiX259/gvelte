@@ -7,7 +7,7 @@
     "build": "tsc -p ./compiler/tsconfig.json",
     "compile": "node ./compiler/dist/index.js",
     "dev": "node ./watch.js",
-    "start": "gjs ./run/main.js",
+    "start": "LD_PRELOAD=libgtk4-layer-shell.so gjs ./run/main.js",
     "open": "gjs ./run/open.js",
     "close": "gjs ./run/close.js"
   },

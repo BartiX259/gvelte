@@ -92,13 +92,56 @@ export function walk_nodes(
 
 // Public API for the HTML Transformation Phase
 export function walk_html(state: CompilerState) {
-  const root_var_name = generate_var_name(state, "box");
-  state.root_widget_name = root_var_name;
-  state.widget_declarations += `const ${root_var_name} = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL, margin_top: 12, margin_bottom: 12, margin_start: 12, margin_end: 12, spacing: 6 });\n`;
+  if (!state.svelte_ast.html || !state.svelte_ast.html.children) {
+    return;
+  }
 
-  if (state.svelte_ast.html && state.svelte_ast.html.children) {
+  // Filter out whitespace-only text nodes to find the real root elements
+  const top_level_nodes = state.svelte_ast.html.children.filter(
+    (n: any) => !(n.type === "Text" && !n.data.trim()),
+  );
+
+  if (top_level_nodes.length === 1) {
+    // --- CASE 1: A single element is the root ---
+    const root_node = top_level_nodes[0];
+    // A single root that is a dynamic block (like {#if}) must be wrapped.
+    if (root_node.type !== "Element" && root_node.type !== "InlineComponent") {
+      const wrapper_box = generate_var_name(state, "root_box");
+      state.root_widget_name = wrapper_box;
+      state.widget_declarations += `const ${wrapper_box} = new Gtk.Box();\n`;
+      const root_code = walk_nodes(
+        top_level_nodes,
+        wrapper_box,
+        ContainerType.MULTIPLE,
+        state,
+      );
+      state.widget_declarations += root_code.declarations;
+      state.effects_and_handlers += root_code.handlers;
+    } else {
+      // This single element becomes the component's root widget.
+      // We set a temporary root name and process it without a parent.
+      state.root_widget_name = generate_var_name(
+        state,
+        root_node.name || "root",
+      );
+      state.counters[root_node.name || "root"]!--;
+      const root_code = walk_nodes(
+        top_level_nodes,
+        "" /* no parent */,
+        ContainerType.NONE,
+        state,
+      );
+      state.widget_declarations += root_code.declarations;
+      state.effects_and_handlers += root_code.handlers;
+    }
+  } else {
+    // --- CASE 2: Multiple elements get a simple wrapper box ---
+    const root_var_name = generate_var_name(state, "root_box");
+    state.root_widget_name = root_var_name;
+    // Note: No margins or other styling, just a basic vertical container.
+    state.widget_declarations += `const ${root_var_name} = new Gtk.Box({ orientation: Gtk.Orientation.VERTICAL });\n`;
     const root_code = walk_nodes(
-      state.svelte_ast.html.children,
+      top_level_nodes,
       root_var_name,
       ContainerType.MULTIPLE,
       state,

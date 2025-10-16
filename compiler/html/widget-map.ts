@@ -162,4 +162,37 @@ export const WIDGET_MAP: {
       ...COMMON_LAYOUT_PROPS,
     ],
   },
+  window: {
+    class: "Gtk.ApplicationWindow",
+    containerType: ContainerType.SINGLE,
+    valid_props: [
+      "title",
+      "default_width",
+      "default_height",
+      "resizable",
+      ...COMMON_LAYOUT_PROPS,
+    ],
+  },
+  // The <layer> tag is an abstraction over a layer-shell-enabled window.
+  layer: {
+    class: "Gtk.ApplicationWindow", // This is the key insight.
+    containerType: ContainerType.SINGLE,
+    valid_props: [
+      // Window properties it can pass through
+      "title",
+      "default_width",
+      "default_height",
+      // Layer-specific properties
+      "stacking",
+      "anchor",
+      "margin_top",
+      "margin_bottom",
+      "margin_start",
+      "margin_end",
+      "margin_left",
+      "margin_right",
+      "exclusive_zone",
+      "keyboard_interactivity",
+    ],
+  },
 };

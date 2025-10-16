@@ -4,7 +4,7 @@
     let greeting = $state("Hello from App.svelte!");
 </script>
 
-<box orientation="v" spacing={6}>
+<box orientation="v" spacing={6} class="p-4">
     <label>This is the root component (App.svelte)</label>
     <image icon_name="start-here-fedora"></image>
     <entry bind={greeting} />

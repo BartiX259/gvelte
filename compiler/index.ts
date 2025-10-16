@@ -51,9 +51,24 @@ function compile_svelte_file(
       specifiers: [],
     });
   }
+  if (!dependencies.has("gi://Gtk4LayerShell")) {
+    dependencies.set("gi://Gtk4LayerShell", {
+      path: "gi://Gtk4LayerShell",
+      isSvelte: false,
+      location: { start: 0, end: 0 },
+      specifiers: [],
+    });
+  }
   const gtk_dep = dependencies.get("gi://Gtk")!;
   if (!gtk_dep.specifiers.some((s) => s.importedName === "default")) {
     gtk_dep.specifiers.push({ localName: "Gtk", importedName: "default" });
+  }
+  const lgtk_dep = dependencies.get("gi://Gtk4LayerShell")!;
+  if (!lgtk_dep.specifiers.some((s) => s.importedName === "default")) {
+    lgtk_dep.specifiers.push({
+      localName: "Gtk4LayerShell",
+      importedName: "default",
+    });
   }
 
   const reactive_variables = new Set(state_variables);

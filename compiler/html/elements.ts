@@ -62,6 +62,91 @@ function process_text_and_mustache_children(
 
 // --- Node Processor Exports ---
 
+function process_layer_tag(
+  node: any,
+  state: CompilerState,
+  local_scope: Set<string>,
+): { declarations: string; handlers: string } {
+  const widget_info = WIDGET_MAP.layer;
+  if (!widget_info) {
+    throw "No layer in widget map";
+  }
+  const var_name = generate_var_name(state, "layer");
+  state.root_widget_name = var_name; // This layer is the component's root.
+
+  let props_string = ""; // For the Gtk.ApplicationWindow constructor
+  let layer_handlers = `Gtk4LayerShell.init_for_window(${var_name});\n`;
+
+  // Separate attributes into two groups
+  for (const attr of node.attributes) {
+    if (attr.type !== "Attribute" || attr.name.startsWith("on")) continue;
+
+    const prop_name = attr.name;
+    const value_node = attr.value?.[0];
+
+    if (!value_node || value_node.type !== "Text") {
+      throw new CompilerError(
+        `Attribute '${prop_name}' on <layer> must be a static string value.`,
+        attr,
+      );
+    }
+    const value = value_node.data;
+
+    switch (prop_name) {
+      // --- Layer-specific attributes become method calls ---
+      case "stacking":
+        layer_handlers += `Gtk4LayerShell.set_layer(${var_name}, Gtk4LayerShell.Layer.${value.toUpperCase()});\n`;
+        break;
+      case "anchor":
+        const edges = value
+          .trim()
+          .split(/\s+/)
+          .map((e: string) => `Gtk4LayerShell.Edge.${e.toUpperCase()}`)
+          .join(" | ");
+        layer_handlers += `Gtk4LayerShell.set_anchor(${var_name}, ${edges}, true);\n`;
+        break;
+      case "margin_top":
+        layer_handlers += `Gtk4LayerShell.set_margin(${var_name}, Gtk4LayerShell.Edge.TOP, ${parseInt(value)});\n`;
+        break;
+      case "margin_bottom":
+        layer_handlers += `Gtk4LayerShell.set_margin(${var_name}, Gtk4LayerShell.Edge.BOTTOM, ${parseInt(value)});\n`;
+        break;
+      case "margin_left":
+      case "margin_start":
+        layer_handlers += `Gtk4LayerShell.set_margin(${var_name}, Gtk4LayerShell.Edge.LEFT, ${parseInt(value)});\n`;
+        break;
+      case "margin_right":
+      case "margin_end":
+        layer_handlers += `Gtk4LayerShell.set_margin(${var_name}, Gtk4LayerShell.Edge.RIGHT, ${parseInt(value)});\n`;
+        break;
+      case "exclusive_zone":
+        layer_handlers += `${var_name}.auto_exclusive_zone_enable();\n`;
+        break;
+
+      // --- Standard window attributes are passed to the constructor ---
+      default:
+        // Use JSON.stringify to handle string quoting correctly.
+        props_string += `${prop_name}: ${JSON.stringify(value)}, `;
+        break;
+    }
+  }
+
+  // Assemble the final code
+  const declarations = `const ${var_name} = new ${widget_info.class}({ ${props_string} });\n`;
+  const children_code = walk_nodes(
+    node.children,
+    var_name,
+    widget_info.containerType,
+    state,
+    local_scope,
+  );
+
+  return {
+    declarations: declarations + children_code.declarations,
+    handlers: layer_handlers + children_code.handlers,
+  };
+}
+
 export function process_component_node(
   node: any,
   parent_var_name: string,
@@ -124,7 +209,7 @@ export function process_component_node(
   let declarations = `const ${instance_name} = ${component_name}({ ${props_string} });\n`;
   if (parent_container_type === ContainerType.SINGLE) {
     declarations += `${parent_var_name}.set_child(${instance_name}.rootWidget);\n`;
-  } else {
+  } else if (parent_container_type === ContainerType.MULTIPLE) {
     declarations += `${parent_var_name}.append(${instance_name}.rootWidget);\n`;
   }
 
@@ -138,9 +223,12 @@ export function process_element(
   state: CompilerState,
   local_scope: Set<string>,
 ): { declarations: string; handlers: string } {
+  const tag = node.name;
+  if (tag === "layer") {
+    return process_layer_tag(node, state, local_scope);
+  }
   let declarations = "";
   let handlers = "";
-  const tag = node.name;
   const widget_info = WIDGET_MAP[tag];
   if (!widget_info) {
     const available_tags = Object.keys(WIDGET_MAP).join(", ");
@@ -176,7 +264,7 @@ export function process_element(
   declarations += `const ${var_name} = new ${widget_info.class}({ ${props_string} });\n`;
   if (parent_container_type === ContainerType.SINGLE) {
     declarations += `${parent_var_name}.set_child(${var_name});\n`;
-  } else {
+  } else if (parent_container_type === ContainerType.MULTIPLE) {
     declarations += `${parent_var_name}.append(${var_name});\n`;
   }
 
